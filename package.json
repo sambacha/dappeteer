@@ -1,6 +1,6 @@
 {
-  "name": "dappeteer",
-  "version": "2.0.0",
+  "name": "dappeteer-2",
+  "version": "3.0.0",
   "description": "E2E testing for dApps using Puppeteer + MetaMask",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/decentraland/dappeteer.git"
+    "url": "https://github.com/sambacha/dappeteer.git"
   },
   "keywords": [
     "e2e",
