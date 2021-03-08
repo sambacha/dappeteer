@@ -1,5 +1,5 @@
 import * as path from 'path'
-import * as puppeteer from 'puppeteer'
+import * as puppeteer from 'puppeteer';
 
 const timeout = seconds => new Promise(resolve => setTimeout(resolve, seconds * 1000))
 
@@ -15,16 +15,24 @@ export type MetamaskOptions = {
   extensionUrl?: string
 }
 
+export declare type NetworkOptions = {
+  name: string,
+  url: string,
+  chainId?: string,
+  networkTicker?: string,
+  blockExplorer?: string
+}
+
 export type Dappeteer = {
   lock: () => Promise<void>
   unlock: (password: string) => Promise<void>
-  addNetwork: (url: string) => Promise<void>
+  addNetwork: (network: NetworkOptions) => Promise<void>
   importPK: (pk: string) => Promise<void>
   switchAccount: (accountNumber: number) => Promise<void>
   switchNetwork: (network: string) => Promise<void>
   confirmTransaction: (options: TransactionOptions) => Promise<void>
   sign: () => Promise<void>
-  approve: (options: ApproveOptions) => Promise<void>
+  approve: () => Promise<void>
 }
 
 export type TransactionOptions = {
@@ -32,15 +40,11 @@ export type TransactionOptions = {
   gasLimit: number
 }
 
-export type ApproveOptions = {
-  allAccounts?: boolean
-}
-
 export async function launch(puppeteer, options: LaunchOptions = {}): Promise<puppeteer.Browser> {
   const { args, ...rest } = options
 
   const { metamaskVersion, metamaskPath } = options
-  const METAMASK_VERSION = metamaskVersion || '9.0.4'
+  const METAMASK_VERSION = metamaskVersion || '7.7.1'
   console['log'](path.join(__dirname, `metamask/${METAMASK_VERSION}`))
   const METAMASK_PATH = metamaskPath || path.resolve(__dirname, '..', 'metamask', METAMASK_VERSION)
 
@@ -81,7 +85,7 @@ export async function getMetamask(
       await metamaskPage.bringToFront()
       const accountSwitcher = await metamaskPage.waitForSelector('.identicon')
       await accountSwitcher.click()
-      const signoutButton = await metamaskPage.waitForSelector('.account-menu__lock-button')
+      const signoutButton = await metamaskPage.waitForSelector('.account-menu__logout-button')
       await signoutButton.click()
       await waitForSignInScreen(metamaskPage)
       signedIn = false
@@ -100,7 +104,7 @@ export async function getMetamask(
       signedIn = true
     },
 
-    addNetwork: async url => {
+    addNetwork: async network => {
       await metamaskPage.bringToFront()
       const networkSwitcher = await metamaskPage.waitForSelector('.network-indicator')
       await networkSwitcher.click()
@@ -115,11 +119,34 @@ export async function getMetamask(
         }
         return elements.length - 1
       }, 'Custom RPC')
+
       const networkButton = (await metamaskPage.$$('li.dropdown-menu-item'))[networkIndex]
       await networkButton.click()
-      const newRPCInput = await metamaskPage.waitForSelector('input#new-rpc')
-      await newRPCInput.type(url)
-      const saveButton = await metamaskPage.waitForSelector('button.settings-tab__rpc-save-button')
+
+      const { name, url, chainId, networkTicker, blockExplorer } = network;
+
+      if (name) {
+        const nameInput = await metamaskPage.waitForSelector("input#network-name");
+        await nameInput.type(name);
+      }
+      if (url) {
+        const rpcInput = await metamaskPage.waitForSelector("input#rpc-url");
+        await rpcInput.type(url);
+      }
+      if (chainId) {
+        const chainIdInput = await metamaskPage.waitForSelector("input#chainId");
+        await chainIdInput.type(chainId);
+      }
+      if (networkTicker) {
+        const networkTickerInput = await metamaskPage.waitForSelector("input#network-ticker");
+        await networkTickerInput.type(networkTicker);
+      }
+      if (blockExplorer) {
+        const blockExplorerInput = await metamaskPage.waitForSelector("input#block-explorer");
+        await blockExplorerInput.type(blockExplorer);
+      }
+
+      const saveButton = await metamaskPage.waitForSelector('.network-form__footer button.btn-secondary')
       await saveButton.click()
       const prevButton = await metamaskPage.waitForSelector('img.app-header__metafox-logo')
       await prevButton.click()
@@ -176,36 +203,54 @@ export async function getMetamask(
         throw new Error("You haven't signed in yet")
       }
 
+      await metamaskPage.waitForSelector('.transaction-list__pending-transactions .transaction-list-item .transaction-status--unapproved')
       await metamaskPage.reload()
 
-      if (options?.gas) {
-        const gasSelector = '.advanced-gas-inputs__gas-edit-row:nth-child(1) input'
-        const gas = await metamaskPage.waitForSelector(gasSelector)
+      if (options) {
+        const editButtonSelector = 'div.confirm-detail-row__header-text--edit'
+        const editButton = await metamaskPage.waitForSelector(editButtonSelector)
+        await editButton.click()
 
-        await metamaskPage.evaluate(
-          () =>
-            ((document.querySelectorAll(
-              '.advanced-gas-inputs__gas-edit-row:nth-child(1) input'
-            )[0] as HTMLInputElement).value = '')
-        )
-        await gas.type(options.gas.toString())
+        const tabSelector = 'li.page-container__tab:nth-child(2)'
+        const tab = await metamaskPage.waitForSelector(tabSelector)
+        await tab.click()
+
+        if (options.gas) {
+          const gasSelector = '.advanced-gas-inputs__gas-edit-row:nth-child(1) input'
+          const gas = await metamaskPage.waitForSelector(gasSelector)
+
+          await metamaskPage.evaluate(
+            () =>
+              ((document.querySelectorAll(
+                '.advanced-gas-inputs__gas-edit-row:nth-child(1) input'
+              )[0] as HTMLInputElement).value = '')
+          )
+          await gas.type(options.gas.toString())
+        }
+
+        if (options.gasLimit) {
+          const gasLimitSelector = '.advanced-gas-inputs__gas-edit-row:nth-child(2) input'
+          const gasLimit = await metamaskPage.waitForSelector(gasLimitSelector)
+
+          await metamaskPage.evaluate(
+            () =>
+              ((document.querySelectorAll(
+                '.advanced-gas-inputs__gas-edit-row:nth-child(2) input'
+              )[0] as HTMLInputElement).value = '')
+          )
+          await gasLimit.type(options.gasLimit.toString())
+        }
+
+        const saveSelector =
+          '#app-content > div > span > div.modal > div > div > div > div.page-container__bottom > div.page-container__footer > header > button'
+        const saveButton = await metamaskPage.waitForSelector(saveSelector)
+        await saveButton.click()
+
+        //Wait for modal to disappear
+        await metamaskPage.waitFor(() => !document.querySelector('div.modal'));
       }
-
-      if (options?.gasLimit) {
-        const gasLimitSelector = '.advanced-gas-inputs__gas-edit-row:nth-child(2) input'
-        const gasLimit = await metamaskPage.waitForSelector(gasLimitSelector)
-
-        await metamaskPage.evaluate(
-          () =>
-            ((document.querySelectorAll(
-              '.advanced-gas-inputs__gas-edit-row:nth-child(2) input'
-            )[0] as HTMLInputElement).value = '')
-        )
-        await gasLimit.type(options.gasLimit.toString())
-      }
-
       const confirmButtonSelector =
-        '#app-content > div > div.main-container-wrapper > div > div > div.page-container__footer > footer > button.button.btn-primary.page-container__footer-button'
+        '#app-content > div > div.main-container-wrapper > div > div.page-container__footer > header > button.button.btn-primary.btn--large.page-container__footer-button'
       const confirmButton = await metamaskPage.waitForSelector(confirmButtonSelector)
       await confirmButton.click()
       await waitForUnlockedScreen(metamaskPage)
@@ -218,7 +263,7 @@ export async function getMetamask(
       }
       await metamaskPage.reload()
 
-      const confirmButtonSelector = '.signature-request-footer button.button.btn-primary'
+      const confirmButtonSelector = '.request-signature__footer button.btn-secondary'
 
       const button = await metamaskPage.waitForSelector(confirmButtonSelector)
       await button.click()
@@ -226,45 +271,14 @@ export async function getMetamask(
       await waitForUnlockedScreen(metamaskPage)
     },
 
-    approve: async ({ allAccounts = false }) => {
+    approve: async () => {
       await metamaskPage.bringToFront()
-      if (!signedIn) {
-        throw new Error("You haven't signed in yet")
-      }
-      await metamaskPage.reload()
-
-      // If we want to approve all imported accounts to be used with our Dapp and avoid
-      // difficulties connecting while switching accounts
-      if (allAccounts) {
-        const accountListElementsSelector =
-          '.permissions-connect-choose-account__account'
-        
-        // We wait until the list is loaded and we check that it has more than 1 element
-        await metamaskPage.waitForSelector(accountListElementsSelector)
-        const accountListElements = await metamaskPage.$$(accountListElementsSelector)
-
-        // Try to click input only if there is more than one account. It won't be present with one
-        // account or less
-        if (accountListElements.length > 1) {
-          const selectAllCheckboxSelector =
-            '.permissions-connect-choose-account__select-all input'
-            
-          const allAccountsCheckbox = await metamaskPage.waitForSelector(selectAllCheckboxSelector)
-          await allAccountsCheckbox.click()
-        }        
-      }
 
       const confirmButtonSelector =
-        '.permissions-connect-choose-account__bottom-buttons button.button.btn-primary'
+        'button.button.btn-primary.btn--large.page-container__footer-button'
 
-        const button = await metamaskPage.waitForSelector(confirmButtonSelector)
-        await button.click()
-        
-        const permissionApprovalSelector = 
-          '.permission-approval-container__footers button.button.btn-primary'
-
-          const permissionApprovalButton = await metamaskPage.waitForSelector(permissionApprovalSelector)
-          await permissionApprovalButton.click()
+      const button = await metamaskPage.waitForSelector(confirmButtonSelector)
+      await button.click()
 
       await waitForUnlockedScreen(metamaskPage)
     }
@@ -317,7 +331,7 @@ async function importAccount(metamaskPage: puppeteer.Page, seed: string, passwor
   const metricsOptOut = await metamaskPage.waitForSelector('.metametrics-opt-in button.btn-primary')
   await metricsOptOut.click()
 
-  const seedPhraseInput = await metamaskPage.waitForSelector('.first-time-flow__seedphrase input')
+  const seedPhraseInput = await metamaskPage.waitForSelector('.first-time-flow textarea')
   await seedPhraseInput.type(seed)
 
   const passwordInput = await metamaskPage.waitForSelector('#password')
@@ -326,22 +340,14 @@ async function importAccount(metamaskPage: puppeteer.Page, seed: string, passwor
   const passwordConfirmInput = await metamaskPage.waitForSelector('#confirm-password')
   await passwordConfirmInput.type(password)
 
-  const acceptTerms = await metamaskPage.waitForSelector('.first-time-flow__terms')
+  const acceptTerms = await metamaskPage.waitForSelector('div[role=checkbox]')
   await acceptTerms.click()
 
-  const restoreButton = await metamaskPage.waitForSelector('.first-time-flow__button')
+  const restoreButton = await metamaskPage.waitForSelector('.first-time-flow button')
   await restoreButton.click()
 
   const doneButton = await metamaskPage.waitForSelector('.end-of-flow button')
   await doneButton.click()
-
-  const closeSwappingButton = await metamaskPage.waitForSelector('.popover-header__button')
-  await closeSwappingButton.click()
-
-  // Ensure popover is closed before continue
-  await metamaskPage.waitForFunction(() => {
-    return document.querySelector('.popover-header__button') == null
-  })
 }
 
 async function waitForUnlockedScreen(metamaskPage) {
@@ -349,7 +355,7 @@ async function waitForUnlockedScreen(metamaskPage) {
 }
 
 async function waitForSignInScreen(metamaskPage) {
-  await metamaskPage.waitForSelector('.unlock-page')
+  await metamaskPage.waitForSelector('#metamask-mascot-container')
 }
 
 async function waitForEthereum(metamaskPage) {
@@ -358,13 +364,13 @@ async function waitForEthereum(metamaskPage) {
 }
 
 async function waitUntilStartConnectingToEthereum(metamaskPage) {
-  await metamaskPage.waitForFunction(() => {
+  await metamaskPage.waitFor(() => {
     return !!document.querySelector('img[src="images/loading.svg"]')
   })
 }
 
 async function waitUntilConnectedToEthereum(metamaskPage) {
-  await metamaskPage.waitForFunction(() => {
+  await metamaskPage.waitFor(() => {
     return document.querySelector('img[src="images/loading.svg"]') == null
   })
 }
