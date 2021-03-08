@@ -1,7 +1,7 @@
-*DS_Store
+.DS_Store
 node_modules
 test/server/data.js
 build
 dist
-yarn.lock
+.idea/
 .vscode/
